@@ -7,11 +7,98 @@ output: html_document
 
 ##Objective
 
-The goal of this document is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which the participant did the exercise. Participants were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+The goal of this document is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which the participant did the exercise. Participants were asked to perform barbell lifts correctly and incorrectly in 5 different ways which were classified with letter A-E.
 
 This report will describe:
 1. How the model was built
 2. How cross-validation was used
 3. What the expected out of sample error is
 4. Why choices were made.
+
+
+##Retrieving the data
+
+```{R}
+trainURL <- 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv'
+train  <- read.csv(trainURL)
+```
+
+```{R}
+testURL <- 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv'
+test <- read.csv(testURL)
+```
+
+##Exploratory Analysis
+
+Let's see what kind of variables there are in the set
+
+```{R}
+str(train)
+```
+
+There's quite a few logical and NA variables here. Let's subset those out and try again. 
+
+```{R}
+#remove all non-numeric variables
+train.numeric.dim <- sapply(train, is.numeric)
+train.numeric.dim['classe'] <-  TRUE # we need to keep this variable for training.
+train.numeric <- train[,train.numeric.dim]
+
+
+dim(train.numeric)
+
+#check for any NAs which can preclude some modeling techniques
+sum(is.na(train.numeric)) 
+
+train.complete <-  train.numeric[complete.cases(train.numeric),]
+
+#see numeric samples
+dim(train.complete)
+```
+
+Removing all non-numeric variables gives us 19622 obs by 124 variables but
+there are 1287472 NAs in that data. If we only accept complete cases that
+gives 406 obs by 124 variables. This may be too few to build a great model. We can try though.
+
+##Building The Model
+
+Let's first split the training set into a test and training set.
+We'll use Random Forest first which is great at predicting and requires
+no NA values. These criteria fit our requirements.
+```{R}
+library(caret)
+library(randomForest)
+InTrain <-createDataPartition(y=train.complete$classe,p=0.6,list=FALSE)
+rf.train <- train.complete[InTrain,]
+rf.test <- train.complete[-InTrain,]
+```
+
+```{R}
+rf.model<-train(classe~.,data=rf.train,method="rf",
+                trControl=trainControl(method="cv",number=10),
+                prox=TRUE,allowParallel=TRUE)
+print(rf.model)
+```
+
+Wow! Caret predicts 0.996 accuracy and 0.995 kappa with 10 fold cross validation.
+That's great for the first try. Let's see the performance estimates.
+
+```{R, echo=TRUE}
+print(rf.model$finalModel)
+```
+ 
+Okay so that missed one classification out of 226 samples for a 0.41% out of bag
+error. That's really good for a first try, so let's use the model to predict the class for the test subset data and check it using the ConfusionMatrix tool.
+
+```{R, echo=TRUE}
+rf.model.fit <- predict(rf.model, newdata = rf.test)
+confusionMatrix(data = rf.model.fit, test$classe)
+```
+
+This confirms the model estimates. 0.994 accuracy with a 0.9657 to 0.9998 interval is excellent. It appears the model misclassified a B sample as predicted. 
+
+```{R}
+test.complete <- test[,train.numeric.dim]
+rf.model.predict <- predict(rf.model, newdata = test.complete)
+```
 
