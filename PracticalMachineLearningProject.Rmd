@@ -51,7 +51,7 @@ dim(train.numeric)
 sum(is.na(train.numeric)) 
 
 train.complete <-  train.numeric[complete.cases(train.numeric),]
-
+sum(is.na(train.complete))
 #see numeric samples
 dim(train.complete)
 ```
@@ -102,3 +102,19 @@ test.complete <- test[,train.numeric.dim]
 rf.model.predict <- predict(rf.model, newdata = test.complete)
 ```
 
+#PROBABLY TEST OTHER MODELS THAN RF
+
+```{R}
+library(pls)
+
+pls.model<-train(classe~.,data=rf.train,method="pls",
+                trControl=trainControl(method="loocv"),
+                prox=TRUE,allowParallel=TRUE)
+
+print(pls.model$finalModel)
+```
+
+```{R, echo=TRUE}
+pls.model.fit <- predict(pls.model, newdata = rf.test)
+confusionMatrix(data = pls.model.fit, rf.test$classe)
+```
