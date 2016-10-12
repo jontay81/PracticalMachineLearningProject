@@ -1,0 +1,17 @@
+---
+title: "Practical Machine Learning"
+author: "Jon Taylor"
+date: "October 11, 2016"
+output: html_document
+---
+
+##Objective
+
+The goal of this document is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which the participant did the exercise. Participants were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+
+This report will describe:
+1. How the model was built
+2. How cross-validation was used
+3. What the expected out of sample error is
+4. Why choices were made.
+
