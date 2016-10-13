@@ -10,20 +10,21 @@ output: html_document
 The goal of this document is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which the participant did the exercise. Participants were asked to perform barbell lifts correctly and incorrectly in 5 different ways which were classified with letter A-E.
 
 This report will describe:
-1. How the model was built
-2. How cross-validation was used
-3. What the expected out of sample error is
-4. Why choices were made.
+ 
+ 1. How the model was built
+ 2. How cross-validation was used
+ 3. What the expected out of sample error is
+ 4. Why choices were made.
 
 
 ##Retrieving the data
 
-```{R}
+```{R, cache = TRUE}
 trainURL <- 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv'
 train  <- read.csv(trainURL)
 ```
 
-```{R}
+```{R, cache = TRUE}
 testURL <- 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv'
 test <- read.csv(testURL)
 ```
@@ -33,88 +34,142 @@ test <- read.csv(testURL)
 Let's see what kind of variables there are in the set
 
 ```{R}
-str(train)
+str(test)
 ```
 
-There's quite a few logical and NA variables here. Let's subset those out and try again. 
+There's quite a few logical and NA variables here. I'd like to be able to perform 
+random forest, which cannot accept NAs so we must impute or remove them.
+Let's remove non-numerical and NA values out and try again. 
 
 ```{R}
-#remove all non-numeric variables
-train.numeric.dim <- sapply(train, is.numeric)
-train.numeric.dim['classe'] <-  TRUE # we need to keep this variable for training.
-train.numeric <- train[,train.numeric.dim]
 
+#get the columns for numeric variables
+test.numeric.dim  <- sapply(test, is.numeric) 
+test.numeric  <- test[,test.numeric.dim]
 
-dim(train.numeric)
+#check for any NA variables
+sum(is.na(test.numeric))
 
-#check for any NAs which can preclude some modeling techniques
-sum(is.na(train.numeric)) 
-
-train.complete <-  train.numeric[complete.cases(train.numeric),]
-sum(is.na(train.complete))
-#see numeric samples
-dim(train.complete)
+#select only complete cases
+test.complete  <- test.numeric[complete.cases(test.numeric)]
 ```
 
-Removing all non-numeric variables gives us 19622 obs by 124 variables but
-there are 1287472 NAs in that data. If we only accept complete cases that
-gives 406 obs by 124 variables. This may be too few to build a great model. We can try though.
+
+```{R}
+str(test.complete)
+dim(test.complete)
+```
+
+Subsetting out the non-numerical and NA data yields a data set of 20 observations
+of 57 variables. This looks like a good set of predictors.
+
+Now we need to subset the training data to match the test data variables we've 
+selected. 
+
+```{R}
+#subset training data with same variables as test set by
+#finding which columns from the train set are in the reduced test set
+col.num  <- which(colnames(train) %in% colnames(test.complete))
+
+#we need to make sure the 'classe' variable is also included here to
+#produce a model
+xtrain  <- cbind(train[,c(col.num,160)])
+
+#but we don't want to predict with X, timestamps, or group, so let's remove those
+xtrain <- xtrain[,-(1:4)] 
+
+#now we can check for NAs
+sum(is.na(xtrain))
+```
+
+Okay good. So now we've matched the trainnig variables to the test variables and
+removed all the NAs from both.
+
+This leaves us with a 19622 observation by 53 variable set to build the model.
+
 
 ##Building The Model
 
 Let's first split the training set into a test and training set.
 We'll use Random Forest first which is great at predicting and requires
 no NA values. These criteria fit our requirements.
+
+Optionally: we can take a sample fraction of the data to make the model building
+proces faster. We'll use a 25% spl
+
+
 ```{R}
 library(caret)
 library(randomForest)
-InTrain <-createDataPartition(y=train.complete$classe,p=0.6,list=FALSE)
-rf.train <- train.complete[InTrain,]
-rf.test <- train.complete[-InTrain,]
+library(dplyr)
+
+#sample the training set for improved modeling speed
+xtrain2  <- sample_frac(xtrain, 0.25) 
+
+InTrain <-createDataPartition(y=xtrain2$classe,p=0.6,list=FALSE)
+rf.train <- xtrain2[InTrain,]
+rf.test <- xtrain2[-InTrain,]
 ```
 
 ```{R}
+
+#use multicore processing to improve modelling speed
+
+#source: Len Greski, Course Mentor
+#        https://github.com/lgreski/datasciencectacontent/blob/master/markdown
+#        /pml-randomForestPerformance.md 
+
+
+library(parallel)
+library(doParallel)
+cluster <- makeCluster(detectCores() - 1) # convention to leave 1 core for OS
+registerDoParallel(cluster)
+```
+
+
+```{R, cache=TRUE}
+#create the random forest model with 10 fold cross-validation
+
 rf.model<-train(classe~.,data=rf.train,method="rf",
                 trControl=trainControl(method="cv",number=10),
                 prox=TRUE,allowParallel=TRUE)
 print(rf.model)
 ```
 
-Wow! Caret predicts 0.996 accuracy and 0.995 kappa with 10 fold cross validation.
+```{R}
+#stop the cluster after model building
+stopCluster(cluster)
+```
+
+
+Caret predicts 0.96 accuracy and 0.95 kappa with 10 fold cross validation.
 That's great for the first try. Let's see the performance estimates.
 
 ```{R, echo=TRUE}
 print(rf.model$finalModel)
 ```
  
-Okay so that missed one classification out of 226 samples for a 0.41% out of bag
-error. That's really good for a first try, so let's use the model to predict the class for the test subset data and check it using the ConfusionMatrix tool.
+Okay so that missed some classifications and had a 3.57% out of bag
+error rate estimate. That's an acceptable amount of error for this project,
+so let's use the model to predict the class for the test subset data and 
+check it using the ConfusionMatrix tool.
 
 ```{R, echo=TRUE}
-rf.model.fit <- predict(rf.model, newdata = rf.test)
-confusionMatrix(data = rf.model.fit, test$classe)
+rf.model.fit <- predict(rf.model, newdata = rf.test, method='class')
+confusionMatrix(data = rf.model.fit, rf.test$classe)
 ```
 
-This confirms the model estimates. 0.994 accuracy with a 0.9657 to 0.9998 interval is excellent. It appears the model misclassified a B sample as predicted. 
+This confirms the model estimates. 0.96 accuracy with a 0.95 to 0.97 interval is 
+good for our purposes, so let's proceed.
 
+Now we we'll use our model to predict the unknown test set.
 ```{R}
-test.complete <- test[,train.numeric.dim]
-rf.model.predict <- predict(rf.model, newdata = test.complete)
+
+rf.model.predict <- predict(rf.model, test.complete)
+
+#print the results in a table
+table(test.complete$problem_id, rf.model.predict)
 ```
 
-#PROBABLY TEST OTHER MODELS THAN RF
 
-```{R}
-library(pls)
-
-pls.model<-train(classe~.,data=rf.train,method="pls",
-                trControl=trainControl(method="loocv"),
-                prox=TRUE,allowParallel=TRUE)
-
-print(pls.model$finalModel)
-```
-
-```{R, echo=TRUE}
-pls.model.fit <- predict(pls.model, newdata = rf.test)
-confusionMatrix(data = pls.model.fit, rf.test$classe)
-```
+             
